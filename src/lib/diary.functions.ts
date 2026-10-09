@@ -7,8 +7,10 @@ import { listEntries, readEntry, writeEntry, trashEntry } from "./drive.server";
 export type { EntryMeta, FullEntry, SaveResult } from "./drive.server";
 
 function sessionConfig() {
+  const secret = process.env["SESSION_SECRET"];
+  if (!secret || secret.length < 32) throw new Error("SESSION_SECRET is missing or shorter than 32 characters");
   return {
-    password: process.env["SESSION_SECRET"]!,
+    password: secret,
     name: "inkwell-gate",
     maxAge: 60 * 60 * 24 * 30,
     cookie: { httpOnly: true, secure: true, sameSite: "lax" as const, path: "/" },
