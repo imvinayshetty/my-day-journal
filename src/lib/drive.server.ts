@@ -58,7 +58,7 @@ type DriveFile = { id: string; modifiedTime: string; appProperties?: Record<stri
 
 function toMeta(f: DriveFile): EntryMeta {
   const a = f.appProperties ?? {};
-  return { fileId: f.id, date: a.d ?? "", title: a.t ?? "", mood: a.m ?? "😊", preview: a.p ?? "", modifiedTime: f.modifiedTime };
+  return { fileId: f.id, date: a["d"] ?? "", title: a["t"] ?? "", mood: a["m"] ?? "😊", preview: a["p"] ?? "", modifiedTime: f.modifiedTime };
 }
 
 async function findOne(q: string): Promise<string | null> {
