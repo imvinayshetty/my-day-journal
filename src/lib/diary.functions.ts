@@ -1,25 +1,15 @@
 import { createServerFn } from "@tanstack/react-start";
-import { useSession } from "@tanstack/react-start/server";
 import { redirect } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { listEntries, readEntry, writeEntry, trashEntry } from "./drive.server";
+import { gateSession } from "./session.server";
 
 export type { EntryMeta, FullEntry, SaveResult } from "./drive.server";
 
-function sessionConfig() {
-  const secret = process.env["SESSION_SECRET"];
-  if (!secret || secret.length < 32) throw new Error("SESSION_SECRET is missing or shorter than 32 characters");
-  return {
-    password: secret,
-    name: "inkwell-gate",
-    maxAge: 60 * 60 * 24 * 30,
-    cookie: { httpOnly: true, secure: true, sameSite: "lax" as const, path: "/" },
-  };
-}
-
 async function requireUnlocked() {
-  const s = await useSession<{ unlocked?: boolean }>(sessionConfig());
+  const s = await gateSession();
   if (!s.data.unlocked) throw redirect({ to: "/unlock" });
+  return s;
 }
 
 const fileIdOf = (v: unknown) => {
@@ -36,14 +26,29 @@ export const unlockDiary = createServerFn({ method: "POST" })
     const a = createHash("sha256").update(data.password).digest();
     const b = createHash("sha256").update(expected).digest();
     if (!timingSafeEqual(a, b)) return { ok: false as const };
-    const s = await useSession<{ unlocked?: boolean }>(sessionConfig());
+    const s = await gateSession();
     await s.update({ unlocked: true });
     return { ok: true as const };
   });
 
 export const lockDiary = createServerFn({ method: "POST" }).handler(async () => {
-  const s = await useSession(sessionConfig());
-  await s.clear();
+  const s = await gateSession();
+  await s.update({ unlocked: false });
+  return { ok: true };
+});
+
+export const getDriveStatus = createServerFn({ method: "GET" }).handler(async () => {
+  const s = await requireUnlocked();
+  return {
+    connected: Boolean(s.data.gRefresh || process.env["GOOGLE_REFRESH_TOKEN"] || process.env["GOOGLE_DRIVE_API_KEY"]),
+    viaButton: Boolean(s.data.gRefresh),
+    canConnect: Boolean(process.env["GOOGLE_CLIENT_ID"] && process.env["GOOGLE_CLIENT_SECRET"]),
+  };
+});
+
+export const disconnectDrive = createServerFn({ method: "POST" }).handler(async () => {
+  const s = await requireUnlocked();
+  await s.update({ gRefresh: undefined });
   return { ok: true };
 });
 
