@@ -59,7 +59,7 @@ export const getEntry = createServerFn({ method: "GET" })
 
 export const saveEntry = createServerFn({ method: "POST" })
   .inputValidator(
-    (d: { fileId?: string; expectedModifiedTime?: string; date: string; title: string; mood: string; body: string }) => ({
+    (d: { fileId?: string | undefined; expectedModifiedTime?: string | undefined; date: string; title: string; mood: string; body: string }) => ({
       fileId: d.fileId ? fileIdOf(d.fileId) : undefined,
       expectedModifiedTime: d.expectedModifiedTime ? String(d.expectedModifiedTime) : undefined,
       date: String(d.date ?? "").slice(0, 10),

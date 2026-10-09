@@ -153,8 +153,8 @@ export async function readEntry(fileId: string): Promise<FullEntry> {
 export type SaveResult = { ok: true; entry: EntryMeta } | { ok: false; conflict: true };
 
 export async function writeEntry(input: {
-  fileId?: string;
-  expectedModifiedTime?: string;
+  fileId?: string | undefined;
+  expectedModifiedTime?: string | undefined;
   date: string;
   title: string;
   mood: string;
