@@ -1,4 +1,5 @@
 const GW = "https://connector-gateway.lovable.dev/google_drive";
+const GOOGLE_API = "https://www.googleapis.com";
 const FOLDER_NAME = "Inkwell Diary";
 const LEGACY_FILE = "Inkwell Diary.json";
 
@@ -12,21 +13,57 @@ export type EntryMeta = {
 };
 export type FullEntry = EntryMeta & { body: string };
 
-function headers(extra: Record<string, string> = {}) {
+// Own Google OAuth (works on any host) when GOOGLE_REFRESH_TOKEN is set; otherwise the Lovable connector.
+let cachedToken: { value: string; expiresAt: number } | null = null;
+
+async function googleAccessToken(): Promise<string> {
+  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.value;
+  const clientId = process.env["GOOGLE_CLIENT_ID"];
+  const clientSecret = process.env["GOOGLE_CLIENT_SECRET"];
+  const refreshToken = process.env["GOOGLE_REFRESH_TOKEN"];
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error("GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REFRESH_TOKEN must all be set");
+  }
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(`Google token refresh failed [${res.status}]: ${body}`);
+    throw new Error(`Google sign-in failed [${res.status}]: ${body}`);
+  }
+  const json = (await res.json()) as { access_token: string; expires_in: number };
+  cachedToken = { value: json.access_token, expiresAt: Date.now() + json.expires_in * 1000 };
+  return json.access_token;
+}
+
+async function target(): Promise<{ base: string; auth: Record<string, string> }> {
+  if (process.env["GOOGLE_REFRESH_TOKEN"]) {
+    return { base: GOOGLE_API, auth: { Authorization: `Bearer ${await googleAccessToken()}` } };
+  }
   const lk = process.env["LOVABLE_API_KEY"];
   const dk = process.env["GOOGLE_DRIVE_API_KEY"];
-  if (!lk || !dk) throw new Error("Google Drive is not connected");
-  return { Authorization: `Bearer ${lk}`, "X-Connection-Api-Key": dk, ...extra };
+  if (!lk || !dk) throw new Error("Google Drive is not connected: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REFRESH_TOKEN");
+  return { base: GW, auth: { Authorization: `Bearer ${lk}`, "X-Connection-Api-Key": dk } };
 }
 
 async function drive(path: string, init: RequestInit = {}, what = "request") {
-  const res = await fetch(`${GW}${path}`, {
+  const { base, auth } = await target();
+  const res = await fetch(`${base}${path}`, {
     ...init,
-    headers: headers((init.headers as Record<string, string>) ?? {}),
+    headers: { ...((init.headers as Record<string, string>) ?? {}), ...auth },
   });
   if (!res.ok) {
     const body = await res.text();
     console.error(`Drive ${what} failed [${res.status}]: ${body}`);
+    if (res.status === 401) cachedToken = null;
     throw new Error(`Google Drive ${what} failed [${res.status}]`);
   }
   return res;
