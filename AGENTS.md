@@ -11,3 +11,4 @@
 
 - Diary storage: one Google Drive JSON file per entry in an "Inkwell Diary" folder, with list metadata in appProperties; why: saves touch only one entry and the list loads without downloading bodies.
 - Diary access: shared-password gate in an encrypted session, checked inside every diary server function; why: single-owner app without accounts.
+- Vercel hosting: vercel.json pins Bun install/build with no framework preset, and the build auto-targets Vercel output when VERCEL is set; why: the same repo deploys to both Lovable and Vercel without config forks.
