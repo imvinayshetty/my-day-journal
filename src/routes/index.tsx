@@ -1,7 +1,9 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
-import { getEntries, saveEntries, lockDiary, type Entry } from "@/lib/diary.functions";
+import {
+  getEntryList, getEntry, saveEntry, deleteEntry, lockDiary, type EntryMeta,
+} from "@/lib/diary.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -12,63 +14,117 @@ export const Route = createFileRoute("/")({
       { property: "og:description", content: "A calm, private diary to write your days, moods and memories." },
     ],
   }),
-  loader: () => getEntries(),
+  loader: () => getEntryList(),
   component: Diary,
 });
 
 const MOODS = ["😊", "😌", "😐", "😔", "😤", "🥰"];
 
+type Draft = { fileId?: string; expectedModifiedTime?: string; date: string; title: string; mood: string; body: string };
+type Status = "synced" | "saving" | "loading" | "error" | "conflict";
+
 function Diary() {
   const router = useRouter();
   const initial = Route.useLoaderData();
-  const save_ = useServerFn(saveEntries);
+  const listFn = useServerFn(getEntryList);
+  const getFn = useServerFn(getEntry);
+  const saveFn = useServerFn(saveEntry);
+  const deleteFn = useServerFn(deleteEntry);
   const lock = useServerFn(lockDiary);
-  const [entries, setEntries] = useState<Entry[]>(initial);
-  const [status, setStatus] = useState<"synced" | "saving" | "error">("synced");
-  const [editing, setEditing] = useState<Entry | null>(null);
-  const [q, setQ] = useState("");
 
-  const persist = async (e: Entry[]) => {
-    setEntries(e);
-    setStatus("saving");
-    try { await save_({ data: { entries: e } }); setStatus("synced"); } catch { setStatus("error"); }
-  };
-  const logout = async () => { await lock(); await router.navigate({ to: "/unlock" }); };
+  const [entries, setEntries] = useState<EntryMeta[]>(initial);
+  const [editing, setEditing] = useState<Draft | null>(null);
+  const [status, setStatus] = useState<Status>("synced");
+  const [q, setQ] = useState("");
 
   const filtered = useMemo(
     () => entries
-      .filter((e) => (e.title + e.body).toLowerCase().includes(q.toLowerCase()))
-      .sort((a, b) => b.date.localeCompare(a.date)),
+      .filter((e) => (e.title + " " + e.preview).toLowerCase().includes(q.toLowerCase()))
+      .sort((a, b) => b.date.localeCompare(a.date) || b.modifiedTime.localeCompare(a.modifiedTime)),
     [entries, q],
   );
 
-  const newEntry = () =>
-    setEditing({ id: crypto.randomUUID(), date: new Date().toISOString().slice(0, 10), title: "", body: "", mood: "😊" });
-
-  const save = () => {
-    if (!editing) return;
-    const exists = entries.some((e) => e.id === editing.id);
-    persist(exists ? entries.map((e) => (e.id === editing.id ? editing : e)) : [editing, ...entries]);
-    setEditing(null);
+  const refresh = async () => {
+    setStatus("loading");
+    try { setEntries(await listFn()); setStatus("synced"); } catch { setStatus("error"); }
   };
-  const remove = () => {
-    if (!editing || !confirm("Delete this entry?")) return;
-    persist(entries.filter((e) => e.id !== editing.id));
-    setEditing(null);
+  const logout = async () => { await lock(); await router.navigate({ to: "/unlock" }); };
+
+  const newEntry = () =>
+    setEditing({ date: new Date().toISOString().slice(0, 10), title: "", body: "", mood: "😊" });
+
+  const open = async (m: EntryMeta) => {
+    setEditing({ fileId: m.fileId, date: m.date, title: m.title, mood: m.mood, body: "", expectedModifiedTime: m.modifiedTime });
+    setStatus("loading");
+    try {
+      const full = await getFn({ data: { fileId: m.fileId } });
+      setEditing({ fileId: full.fileId, expectedModifiedTime: full.modifiedTime, date: full.date, title: full.title, mood: full.mood, body: full.body });
+      setStatus("synced");
+    } catch { setStatus("error"); }
+  };
+
+  const save = async () => {
+    if (!editing || status === "loading") return;
+    setStatus("saving");
+    try {
+      const res = await saveFn({ data: editing });
+      if (!res.ok) { setStatus("conflict"); return; }
+      setEntries((prev) => [res.entry, ...prev.filter((e) => e.fileId !== res.entry.fileId)]);
+      setEditing(null);
+      setStatus("synced");
+    } catch { setStatus("error"); }
+  };
+
+  const remove = async () => {
+    if (!editing?.fileId || !confirm("Delete this entry? It will go to your Google Drive trash.")) return;
+    setStatus("saving");
+    try {
+      await deleteFn({ data: { fileId: editing.fileId } });
+      setEntries((prev) => prev.filter((e) => e.fileId !== editing.fileId));
+      setEditing(null);
+      setStatus("synced");
+    } catch { setStatus("error"); }
+  };
+
+  const reloadConflict = async () => {
+    if (!editing?.fileId) return;
+    const m = entries.find((e) => e.fileId === editing.fileId);
+    if (m) await open(m);
+  };
+
+  const statusText: Record<Status, string> = {
+    synced: "☁︎ Synced with Google Drive",
+    saving: "Saving to Google Drive…",
+    loading: "Loading from Google Drive…",
+    error: "Couldn't reach Google Drive — try again",
+    conflict: "This entry was changed on another device.",
   };
 
   if (editing) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-2xl flex-col px-5 pb-8 pt-[max(1.25rem,env(safe-area-inset-top))]">
         <div className="mb-4 flex items-center justify-between">
-          <button onClick={() => setEditing(null)} className="text-muted-foreground">← Back</button>
+          <button onClick={() => { setEditing(null); setStatus("synced"); }} className="text-muted-foreground">← Back</button>
           <div className="flex gap-3">
-            {entries.some((e) => e.id === editing.id) && (
-              <button onClick={remove} className="text-destructive">Delete</button>
-            )}
-            <button onClick={save} className="rounded-full bg-primary px-5 py-2 font-semibold text-primary-foreground">Save</button>
+            {editing.fileId && <button onClick={remove} className="text-destructive">Delete</button>}
+            <button onClick={save} disabled={status === "saving" || status === "loading"}
+              className="rounded-full bg-primary px-5 py-2 font-semibold text-primary-foreground disabled:opacity-60">
+              {status === "saving" ? "Saving…" : "Save"}
+            </button>
           </div>
         </div>
+        {status !== "synced" && (
+          <div className={`mb-3 rounded-lg px-3 py-2 text-sm ${status === "error" || status === "conflict" ? "bg-muted text-destructive" : "bg-muted text-muted-foreground"}`}>
+            {statusText[status]}
+            {status === "conflict" && (
+              <span className="mt-2 flex gap-3">
+                <button onClick={reloadConflict} className="font-semibold underline">Load their version</button>
+                <button onClick={() => { setEditing({ ...editing, expectedModifiedTime: undefined }); setStatus("synced"); }}
+                  className="font-semibold underline">Keep mine (then Save)</button>
+              </span>
+            )}
+          </div>
+        )}
         <input type="date" value={editing.date} onChange={(e) => setEditing({ ...editing, date: e.target.value })}
           className="mb-3 w-fit rounded-lg bg-muted px-3 py-1 text-sm text-muted-foreground" />
         <div className="mb-3 flex gap-2">
@@ -79,7 +135,9 @@ function Diary() {
         </div>
         <input placeholder="Title of your day" value={editing.title} onChange={(e) => setEditing({ ...editing, title: e.target.value })}
           className="mb-3 bg-transparent font-serif text-3xl outline-none placeholder:text-muted-foreground/60" />
-        <textarea autoFocus placeholder="Dear diary…" value={editing.body} onChange={(e) => setEditing({ ...editing, body: e.target.value })}
+        <textarea autoFocus placeholder={status === "loading" ? "Loading…" : "Dear diary…"} value={editing.body}
+          disabled={status === "loading"}
+          onChange={(e) => setEditing({ ...editing, body: e.target.value })}
           className="flex-1 resize-none rounded-lg border bg-card p-4 font-serif text-lg leading-relaxed outline-none" />
       </main>
     );
@@ -93,13 +151,14 @@ function Diary() {
         </p>
         <div className="flex items-end justify-between gap-3">
           <h1 className="text-4xl font-semibold italic">Inkwell</h1>
-          <button onClick={logout} className="text-sm text-muted-foreground">Lock 🔒</button>
+          <div className="flex gap-4 text-sm text-muted-foreground">
+            <button onClick={refresh}>↻ Refresh</button>
+            <button onClick={logout}>Lock 🔒</button>
+          </div>
         </div>
-        <p className={`mt-1 text-xs ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
-          {status === "saving" ? "Saving to Google Drive…" : status === "error" ? "Couldn't save to Google Drive — try again" : "☁︎ Synced with Google Drive"}
-        </p>
+        <p className={`mt-1 text-xs ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>{statusText[status]}</p>
       </header>
-      <input placeholder="Search your memories…" value={q} onChange={(e) => setQ(e.target.value)}
+      <input placeholder="Search titles and previews…" value={q} onChange={(e) => setQ(e.target.value)}
         className="mb-5 w-full rounded-full border bg-card px-4 py-3 outline-none" />
       {filtered.length === 0 ? (
         <div className="py-20 text-center text-muted-foreground">
@@ -109,15 +168,15 @@ function Diary() {
       ) : (
         <ul className="space-y-3">
           {filtered.map((e) => (
-            <li key={e.id}>
-              <button onClick={() => setEditing(e)} className="flex w-full gap-4 rounded-lg border bg-card p-4 text-left transition hover:bg-muted">
+            <li key={e.fileId}>
+              <button onClick={() => open(e)} className="flex w-full gap-4 rounded-lg border bg-card p-4 text-left transition hover:bg-muted">
                 <span className="shrink-0 text-3xl">{e.mood}</span>
                 <span className="min-w-0 flex-1">
                   <span className="text-xs text-muted-foreground">
-                    {new Date(e.date + "T00:00").toLocaleDateString(undefined, { dateStyle: "medium" })}
+                    {e.date ? new Date(e.date + "T00:00").toLocaleDateString(undefined, { dateStyle: "medium" }) : ""}
                   </span>
                   <span className="block truncate font-serif text-lg font-semibold">{e.title || "Untitled"}</span>
-                  <span className="line-clamp-2 text-sm text-muted-foreground">{e.body}</span>
+                  <span className="line-clamp-2 text-sm text-muted-foreground">{e.preview}</span>
                 </span>
               </button>
             </li>
