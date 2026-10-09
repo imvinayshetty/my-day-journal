@@ -9,7 +9,7 @@
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
 
-- Diary storage: one Google Drive JSON file per entry in an "Inkwell Diary" folder, with list metadata in appProperties; why: saves touch only one entry and the list loads without downloading bodies.
+- Diary storage: one Google Drive JSON file per entry in a root "Inkwell-Diary" folder found by name on every connect (full drive scope so reconnects resume it), with list metadata in appProperties; why: saves touch only one entry and the list loads without downloading bodies.
 - Diary access: shared-password gate in an encrypted session, checked inside every diary server function; why: single-owner app without accounts.
 - Vercel hosting: vercel.json pins Bun install/build with no framework preset, and the build auto-targets Vercel output when VERCEL is set; why: the same repo deploys to both Lovable and Vercel without config forks.
 - Drive auth: in-app "Connect Google Drive" OAuth stores the refresh token in the encrypted gate session (per device), falling back to GOOGLE_REFRESH_TOKEN, then the Lovable connector gateway; why: no database, and it runs on non-Lovable hosts like Vercel.
