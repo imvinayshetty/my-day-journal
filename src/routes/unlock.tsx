@@ -34,7 +34,7 @@ function Unlock() {
 
   return (
     <main className="flex min-h-dvh items-center justify-center px-6">
-      <form onSubmit={onSubmit} className="w-full max-w-sm text-center">
+      <form method="post" onSubmit={onSubmit} className="w-full max-w-sm text-center">
         <p className="text-5xl">🔒</p>
         <h1 className="mt-4 text-4xl font-semibold italic">Inkwell</h1>
         <p className="mt-2 text-muted-foreground">Your diary is locked.</p>
