@@ -2,7 +2,7 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
 import {
-  getEntryList, getEntry, saveEntry, deleteEntry, lockDiary, type EntryMeta,
+  getEntryList, getEntry, saveEntry, deleteEntry, lockDiary, getDriveStatus, disconnectDrive, type EntryMeta,
 } from "@/lib/diary.functions";
 
 export const Route = createFileRoute("/")({
@@ -12,9 +12,15 @@ export const Route = createFileRoute("/")({
       { name: "description", content: "A calm, private diary to write your days, moods and memories." },
       { property: "og:title", content: "Inkwell — Your Personal Diary" },
       { property: "og:description", content: "A calm, private diary to write your days, moods and memories." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
-  loader: () => getEntryList(),
+  loader: async () => {
+    const drive = await getDriveStatus();
+    const entries = drive.connected ? await getEntryList().catch(() => [] as EntryMeta[]) : [];
+    return { drive, entries };
+  },
   component: Diary,
 });
 
@@ -25,12 +31,13 @@ type Status = "synced" | "saving" | "loading" | "error" | "conflict";
 
 function Diary() {
   const router = useRouter();
-  const initial = Route.useLoaderData();
+  const { drive, entries: initial } = Route.useLoaderData();
   const listFn = useServerFn(getEntryList);
   const getFn = useServerFn(getEntry);
   const saveFn = useServerFn(saveEntry);
   const deleteFn = useServerFn(deleteEntry);
   const lock = useServerFn(lockDiary);
+  const disconnect = useServerFn(disconnectDrive);
 
   const [entries, setEntries] = useState<EntryMeta[]>(initial);
   const [editing, setEditing] = useState<Draft | null>(null);
@@ -156,7 +163,23 @@ function Diary() {
             <button onClick={logout}>Lock 🔒</button>
           </div>
         </div>
-        <p className={`mt-1 text-xs ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>{statusText[status]}</p>
+        <p className={`mt-1 text-xs ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+          {drive.connected ? statusText[status] : "Not connected to Google Drive"}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          {drive.canConnect && (
+            <a href="/api/public/google/start"
+              className="rounded-full border bg-card px-4 py-2 text-sm font-semibold">
+              {drive.viaButton ? "↻ Reconnect Google Drive" : "🔗 Connect Google Drive"}
+            </a>
+          )}
+          {drive.viaButton && (
+            <button className="text-sm text-muted-foreground underline"
+              onClick={async () => { await disconnect(); await router.invalidate(); }}>
+              Disconnect
+            </button>
+          )}
+        </div>
       </header>
       <input placeholder="Search titles and previews…" value={q} onChange={(e) => setQ(e.target.value)}
         className="mb-5 w-full rounded-full border bg-card px-4 py-3 outline-none" />

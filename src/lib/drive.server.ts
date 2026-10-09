@@ -13,26 +13,21 @@ export type EntryMeta = {
 };
 export type FullEntry = EntryMeta & { body: string };
 
-// Own Google OAuth (works on any host) when GOOGLE_REFRESH_TOKEN is set; otherwise the Lovable connector.
-let cachedToken: { value: string; expiresAt: number } | null = null;
+// Token priority: refresh token from the in-app "Connect Google Drive" button, then GOOGLE_REFRESH_TOKEN, then the Lovable connector.
+const tokenCache = new Map<string, { value: string; expiresAt: number }>();
+let lastRefresh = "";
 
-async function googleAccessToken(): Promise<string> {
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) return cachedToken.value;
+async function googleAccessToken(refreshToken: string): Promise<string> {
+  lastRefresh = refreshToken;
+  const hit = tokenCache.get(refreshToken);
+  if (hit && hit.expiresAt > Date.now() + 60_000) return hit.value;
   const clientId = process.env["GOOGLE_CLIENT_ID"];
   const clientSecret = process.env["GOOGLE_CLIENT_SECRET"];
-  const refreshToken = process.env["GOOGLE_REFRESH_TOKEN"];
-  if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error("GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REFRESH_TOKEN must all be set");
-  }
+  if (!clientId || !clientSecret) throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set");
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-    }),
+    body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -40,17 +35,18 @@ async function googleAccessToken(): Promise<string> {
     throw new Error(`Google sign-in failed [${res.status}]: ${body}`);
   }
   const json = (await res.json()) as { access_token: string; expires_in: number };
-  cachedToken = { value: json.access_token, expiresAt: Date.now() + json.expires_in * 1000 };
+  tokenCache.set(refreshToken, { value: json.access_token, expiresAt: Date.now() + json.expires_in * 1000 });
   return json.access_token;
 }
 
 async function target(): Promise<{ base: string; auth: Record<string, string> }> {
-  if (process.env["GOOGLE_REFRESH_TOKEN"]) {
-    return { base: GOOGLE_API, auth: { Authorization: `Bearer ${await googleAccessToken()}` } };
-  }
+  const { gateSession } = await import("./session.server");
+  const s = await gateSession();
+  const rt = s.data.gRefresh || process.env["GOOGLE_REFRESH_TOKEN"];
+  if (rt) return { base: GOOGLE_API, auth: { Authorization: `Bearer ${await googleAccessToken(rt)}` } };
   const lk = process.env["LOVABLE_API_KEY"];
   const dk = process.env["GOOGLE_DRIVE_API_KEY"];
-  if (!lk || !dk) throw new Error("Google Drive is not connected: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REFRESH_TOKEN");
+  if (!lk || !dk) throw new Error("Google Drive is not connected: tap 'Connect Google Drive'");
   return { base: GW, auth: { Authorization: `Bearer ${lk}`, "X-Connection-Api-Key": dk } };
 }
 
@@ -63,7 +59,7 @@ async function drive(path: string, init: RequestInit = {}, what = "request") {
   if (!res.ok) {
     const body = await res.text();
     console.error(`Drive ${what} failed [${res.status}]: ${body}`);
-    if (res.status === 401) cachedToken = null;
+    if (res.status === 401) tokenCache.delete(lastRefresh);
     throw new Error(`Google Drive ${what} failed [${res.status}]`);
   }
   return res;
