@@ -2,15 +2,18 @@ import { createServerFn } from "@tanstack/react-start";
 import { redirect } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { listEntries, readEntry, writeEntry, trashEntry } from "./drive.server";
-import { gateSession } from "./session.server";
+import { gateSession, missingSetup } from "./session.server";
 
 export type { EntryMeta, FullEntry, SaveResult } from "./drive.server";
 
 async function requireUnlocked() {
+  if (missingSetup().length) throw redirect({ to: "/unlock" });
   const s = await gateSession();
   if (!s.data.unlocked) throw redirect({ to: "/unlock" });
   return s;
 }
+
+export const getSetupStatus = createServerFn({ method: "GET" }).handler(async () => ({ missing: missingSetup() }));
 
 const fileIdOf = (v: unknown) => {
   const id = String(v ?? "");
