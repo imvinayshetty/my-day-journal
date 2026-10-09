@@ -39,7 +39,7 @@ function SetupNeeded({ missing }: { missing: string[] }) {
 }
 
 function Unlock() {
-  const { missing } = Route.useLoaderData();
+  const missing = Route.useLoaderData()?.missing ?? [];
   const router = useRouter();
   const unlock = useServerFn(unlockDiary);
   const [error, setError] = useState(false);
