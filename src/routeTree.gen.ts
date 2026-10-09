@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as UnlockRouteImport } from './routes/unlock'
+import { Route as ApiPublicGoogleCallbackRouteImport } from './routes/api/public/google/callback'
+import { Route as ApiPublicGoogleStartRouteImport } from './routes/api/public/google/start'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +24,56 @@ const UnlockRoute = UnlockRouteImport.update({
   path: '/unlock',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicGoogleCallbackRoute = ApiPublicGoogleCallbackRouteImport.update({
+  id: '/api/public/google/callback',
+  path: '/api/public/google/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicGoogleStartRoute = ApiPublicGoogleStartRouteImport.update({
+  id: '/api/public/google/start',
+  path: '/api/public/google/start',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/unlock': typeof UnlockRoute
+  '/api/public/google/callback': typeof ApiPublicGoogleCallbackRoute
+  '/api/public/google/start': typeof ApiPublicGoogleStartRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/unlock': typeof UnlockRoute
+  '/api/public/google/callback': typeof ApiPublicGoogleCallbackRoute
+  '/api/public/google/start': typeof ApiPublicGoogleStartRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/unlock': typeof UnlockRoute
+  '/api/public/google/callback': typeof ApiPublicGoogleCallbackRoute
+  '/api/public/google/start': typeof ApiPublicGoogleStartRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/unlock'
+  fullPaths:
+    '/' | '/unlock' | '/api/public/google/callback' | '/api/public/google/start'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/unlock'
-  id: '__root__' | '/' | '/unlock'
+  to:
+    '/' | '/unlock' | '/api/public/google/callback' | '/api/public/google/start'
+  id:
+    | '__root__'
+    | '/'
+    | '/unlock'
+    | '/api/public/google/callback'
+    | '/api/public/google/start'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   UnlockRoute: typeof UnlockRoute
+  ApiPublicGoogleCallbackRoute: typeof ApiPublicGoogleCallbackRoute
+  ApiPublicGoogleStartRoute: typeof ApiPublicGoogleStartRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +92,28 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UnlockRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/google/callback': {
+      id: '/api/public/google/callback'
+      path: '/api/public/google/callback'
+      fullPath: '/api/public/google/callback'
+      preLoaderRoute: typeof ApiPublicGoogleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/google/start': {
+      id: '/api/public/google/start'
+      path: '/api/public/google/start'
+      fullPath: '/api/public/google/start'
+      preLoaderRoute: typeof ApiPublicGoogleStartRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   UnlockRoute: UnlockRoute,
+  ApiPublicGoogleCallbackRoute: ApiPublicGoogleCallbackRoute,
+  ApiPublicGoogleStartRoute: ApiPublicGoogleStartRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
