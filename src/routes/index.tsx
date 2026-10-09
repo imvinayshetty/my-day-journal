@@ -1,5 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { useMemo, useState } from "react";
+import { getEntries, saveEntries, lockDiary, type Entry } from "@/lib/diary.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -10,22 +12,28 @@ export const Route = createFileRoute("/")({
       { property: "og:description", content: "A calm, private diary to write your days, moods and memories." },
     ],
   }),
+  loader: () => getEntries(),
   component: Diary,
 });
 
-type Entry = { id: string; date: string; title: string; body: string; mood: string };
 const MOODS = ["😊", "😌", "😐", "😔", "😤", "🥰"];
-const KEY = "inkwell-entries";
 
 function Diary() {
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const router = useRouter();
+  const initial = Route.useLoaderData();
+  const save_ = useServerFn(saveEntries);
+  const lock = useServerFn(lockDiary);
+  const [entries, setEntries] = useState<Entry[]>(initial);
+  const [status, setStatus] = useState<"synced" | "saving" | "error">("synced");
   const [editing, setEditing] = useState<Entry | null>(null);
   const [q, setQ] = useState("");
 
-  useEffect(() => {
-    try { setEntries(JSON.parse(localStorage.getItem(KEY) || "[]")); } catch {}
-  }, []);
-  const persist = (e: Entry[]) => { setEntries(e); localStorage.setItem(KEY, JSON.stringify(e)); };
+  const persist = async (e: Entry[]) => {
+    setEntries(e);
+    setStatus("saving");
+    try { await save_({ data: { entries: e } }); setStatus("synced"); } catch { setStatus("error"); }
+  };
+  const logout = async () => { await lock(); await router.navigate({ to: "/unlock" }); };
 
   const filtered = useMemo(
     () => entries
@@ -83,7 +91,13 @@ function Diary() {
         <p className="text-sm uppercase tracking-widest text-muted-foreground">
           {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
         </p>
-        <h1 className="text-4xl font-semibold italic">Inkwell</h1>
+        <div className="flex items-end justify-between gap-3">
+          <h1 className="text-4xl font-semibold italic">Inkwell</h1>
+          <button onClick={logout} className="text-sm text-muted-foreground">Lock 🔒</button>
+        </div>
+        <p className={`mt-1 text-xs ${status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+          {status === "saving" ? "Saving to Google Drive…" : status === "error" ? "Couldn't save to Google Drive — try again" : "☁︎ Synced with Google Drive"}
+        </p>
       </header>
       <input placeholder="Search your memories…" value={q} onChange={(e) => setQ(e.target.value)}
         className="mb-5 w-full rounded-full border bg-card px-4 py-3 outline-none" />
