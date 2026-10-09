@@ -1,6 +1,6 @@
 import { useSession } from "@tanstack/react-start/server";
 
-export type GateSession = { unlocked?: boolean; gRefresh?: string; oauthState?: string };
+export type GateSession = { unlocked?: boolean; gRefresh?: string | undefined; oauthState?: string | undefined };
 
 export function sessionConfig() {
   const secret = process.env["SESSION_SECRET"];
