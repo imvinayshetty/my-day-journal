@@ -15,5 +15,5 @@ export function sessionConfig() {
 
 export const gateSession = () => useSession<GateSession>(sessionConfig());
 
-export const GOOGLE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+export const GOOGLE_SCOPE = "https://www.googleapis.com/auth/drive";
 export const callbackUrl = (request: Request) => `${new URL(request.url).origin}/api/public/google/callback`;

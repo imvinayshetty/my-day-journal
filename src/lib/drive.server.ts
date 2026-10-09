@@ -1,6 +1,7 @@
 const GW = "https://connector-gateway.lovable.dev/google_drive";
 const GOOGLE_API = "https://www.googleapis.com";
-const FOLDER_NAME = "Inkwell Diary";
+const FOLDER_NAME = "Inkwell-Diary";
+const LEGACY_FOLDER = "Inkwell Diary";
 const LEGACY_FILE = "Inkwell Diary.json";
 
 export type EntryMeta = {
@@ -100,17 +101,27 @@ async function findOne(q: string): Promise<string | null> {
   return files[0]?.id ?? null;
 }
 
+// Reuse the same Drive folder on every (re)connect: find "Inkwell-Diary" by name, adopt the older
+// "Inkwell Diary" folder if that is all there is, and only create a new one when neither exists.
 async function getFolderId(): Promise<string> {
-  const existing = await findOne(
-    `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-  );
+  const isFolder = "mimeType='application/vnd.google-apps.folder' and trashed=false and 'root' in parents";
+  const existing = await findOne(`name='${FOLDER_NAME}' and ${isFolder}`);
   if (existing) return existing;
+  const legacy = await findOne(`name='${LEGACY_FOLDER}' and ${isFolder}`);
+  if (legacy) {
+    await drive(
+      `/drive/v3/files/${legacy}`,
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: FOLDER_NAME }) },
+      "folder rename",
+    );
+    return legacy;
+  }
   const res = await drive(
     "/drive/v3/files?fields=id",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: FOLDER_NAME, mimeType: "application/vnd.google-apps.folder" }),
+      body: JSON.stringify({ name: FOLDER_NAME, mimeType: "application/vnd.google-apps.folder", parents: ["root"] }),
     },
     "folder create",
   );
