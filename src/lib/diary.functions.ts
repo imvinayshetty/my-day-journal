@@ -2,11 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { useSession } from "@tanstack/react-start/server";
 import { redirect } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { listEntries, readEntry, writeEntry, trashEntry } from "./drive.server";
 
-export type Entry = { id: string; date: string; title: string; body: string; mood: string };
-
-const FILE_NAME = "Inkwell Diary.json";
-const GW = "https://connector-gateway.lovable.dev/google_drive";
+export type { EntryMeta, FullEntry, SaveResult } from "./drive.server";
 
 function sessionConfig() {
   return {
@@ -22,31 +20,11 @@ async function requireUnlocked() {
   if (!s.data.unlocked) throw redirect({ to: "/unlock" });
 }
 
-function headers(extra: Record<string, string> = {}) {
-  const lk = process.env["LOVABLE_API_KEY"];
-  const dk = process.env["GOOGLE_DRIVE_API_KEY"];
-  if (!lk || !dk) throw new Error("Google Drive is not connected");
-  return { Authorization: `Bearer ${lk}`, "X-Connection-Api-Key": dk, ...extra };
-}
-
-async function check(res: Response, what: string) {
-  if (!res.ok) {
-    const body = await res.text();
-    console.error(`Drive ${what} failed [${res.status}]: ${body}`);
-    throw new Error(`Google Drive ${what} failed [${res.status}]`);
-  }
-  return res;
-}
-
-async function findFileId(): Promise<string | null> {
-  const q = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
-  const res = await check(
-    await fetch(`${GW}/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`, { headers: headers() }),
-    "lookup",
-  );
-  const { files } = (await res.json()) as { files: { id: string }[] };
-  return files[0]?.id ?? null;
-}
+const fileIdOf = (v: unknown) => {
+  const id = String(v ?? "");
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(id)) throw new Error("Invalid entry id");
+  return id;
+};
 
 export const unlockDiary = createServerFn({ method: "POST" })
   .inputValidator((d: { password: string }) => ({ password: String(d.password ?? "").slice(0, 200) }))
@@ -67,52 +45,38 @@ export const lockDiary = createServerFn({ method: "POST" }).handler(async () => 
   return { ok: true };
 });
 
-export const getEntries = createServerFn({ method: "GET" }).handler(async () => {
+export const getEntryList = createServerFn({ method: "GET" }).handler(async () => {
   await requireUnlocked();
-  const id = await findFileId();
-  if (!id) return [] as Entry[];
-  const res = await check(await fetch(`${GW}/drive/v3/files/${id}?alt=media`, { headers: headers() }), "read");
-  try {
-    return (await res.json()) as Entry[];
-  } catch {
-    return [] as Entry[];
-  }
+  return listEntries();
 });
 
-export const saveEntries = createServerFn({ method: "POST" })
-  .inputValidator((d: { entries: Entry[] }) => {
-    if (!Array.isArray(d.entries)) throw new Error("Invalid entries");
-    return { entries: d.entries.map((e) => ({
-      id: String(e.id), date: String(e.date), title: String(e.title), body: String(e.body), mood: String(e.mood),
-    })) };
-  })
+export const getEntry = createServerFn({ method: "GET" })
+  .inputValidator((d: { fileId: string }) => ({ fileId: fileIdOf(d.fileId) }))
   .handler(async ({ data }) => {
     await requireUnlocked();
-    const json = JSON.stringify(data.entries, null, 2);
-    const id = await findFileId();
-    if (id) {
-      await check(
-        await fetch(`${GW}/upload/drive/v3/files/${id}?uploadType=media`, {
-          method: "PATCH",
-          headers: headers({ "Content-Type": "application/json" }),
-          body: json,
-        }),
-        "update",
-      );
-    } else {
-      const boundary = "inkwell" + Date.now();
-      const body =
-        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
-        JSON.stringify({ name: FILE_NAME, mimeType: "application/json" }) +
-        `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${json}\r\n--${boundary}--`;
-      await check(
-        await fetch(`${GW}/upload/drive/v3/files?uploadType=multipart`, {
-          method: "POST",
-          headers: headers({ "Content-Type": `multipart/related; boundary=${boundary}` }),
-          body,
-        }),
-        "create",
-      );
-    }
-    return { ok: true, savedAt: new Date().toISOString() };
+    return readEntry(data.fileId);
+  });
+
+export const saveEntry = createServerFn({ method: "POST" })
+  .inputValidator(
+    (d: { fileId?: string | undefined; expectedModifiedTime?: string | undefined; date: string; title: string; mood: string; body: string }) => ({
+      fileId: d.fileId ? fileIdOf(d.fileId) : undefined,
+      expectedModifiedTime: d.expectedModifiedTime ? String(d.expectedModifiedTime) : undefined,
+      date: String(d.date ?? "").slice(0, 10),
+      title: String(d.title ?? "").slice(0, 500),
+      mood: String(d.mood ?? "").slice(0, 16),
+      body: String(d.body ?? "").slice(0, 2_000_000),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireUnlocked();
+    return writeEntry(data);
+  });
+
+export const deleteEntry = createServerFn({ method: "POST" })
+  .inputValidator((d: { fileId: string }) => ({ fileId: fileIdOf(d.fileId) }))
+  .handler(async ({ data }) => {
+    await requireUnlocked();
+    await trashEntry(data.fileId);
+    return { ok: true };
   });
