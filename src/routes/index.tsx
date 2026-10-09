@@ -20,7 +20,7 @@ export const Route = createFileRoute("/")({
 
 const MOODS = ["😊", "😌", "😐", "😔", "😤", "🥰"];
 
-type Draft = { fileId?: string; expectedModifiedTime?: string; date: string; title: string; mood: string; body: string };
+type Draft = { fileId?: string | undefined; expectedModifiedTime?: string | undefined; date: string; title: string; mood: string; body: string };
 type Status = "synced" | "saving" | "loading" | "error" | "conflict";
 
 function Diary() {
